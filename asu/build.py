@@ -14,7 +14,7 @@ log = logging.getLogger("rq.worker")
 log.setLevel(logging.DEBUG)
 
 
-def build(request: dict):
+def build(req: dict):
     """Build image request and setup ImageBuilders automatically
 
     The `request` dict contains properties of the requested image.
@@ -23,25 +23,23 @@ def build(request: dict):
         request (dict): Contains all properties of requested image
     """
 
-    if "packages" in request:
-        assert isinstance(
-            request["packages"], set
-        ), "packages must be type set not list"
+    if "packages" in req:
+        assert isinstance(req["packages"], set), "packages must be type set not list"
     else:
-        request["packages"] = set()
+        req["packages"] = set()
 
-    assert (request["store_path"]).is_dir(), "store_path must be existing directory"
+    assert (req["store_path"]).is_dir(), "store_path must be existing directory"
 
     job = get_current_job()
 
-    log.debug(f"Building {request}")
-    cache = (request["cache_path"] / request["version"] / request["target"]).parent
-    target, subtarget = request["target"].split("/")
+    log.debug(f"Building {req}")
+    cache = (req["cache_path"] / req["version"] / req["target"]).parent
+    target, subtarget = req["target"].split("/")
     sums_file = Path(cache / f"{subtarget}_sums")
     sig_file = Path(cache / f"{subtarget}_sums.sig")
 
     def setup_ib():
-        """Setup ImageBuilder based on `request`
+        """Setup ImageBuilder based on `req`
 
         This function downloads and verifies the ImageBuilder archive. Existing
         setups are automatically updated if newer version are available
@@ -55,7 +53,7 @@ def build(request: dict):
         download_file("sha256sums", sums_file)
 
         assert verify_usign(
-            sig_file, sums_file, request["version_data"]["pubkey"]
+            sig_file, sums_file, req["branch_data"]["pubkey"]
         ), "Bad signature for cheksums"
 
         # openwrt-imagebuilder-ath79-generic.Linux-x86_64.tar.xz
@@ -87,7 +85,7 @@ def build(request: dict):
 
         (cache / ib_archive).unlink()
 
-        extra_repos = request["version_data"].get("extra_repos")
+        extra_repos = req["branch_data"].get("extra_repos")
         if extra_repos:
             log.debug("Found extra repos")
             repos_path = cache / subtarget / "repositories.conf"
@@ -109,11 +107,11 @@ def build(request: dict):
         """
         log.debug(f"Downloading {filename}")
         urllib.request.urlretrieve(
-            request["upstream_url"]
+            req["upstream_url"]
             + "/"
-            + request["version_data"]["path"]
+            + req["branch_data"]["path"].format(version=req["version"])
             + "/targets/"
-            + request["target"]
+            + req["target"]
             + "/"
             + filename,
             dest or (cache / filename),
@@ -124,11 +122,11 @@ def build(request: dict):
     stamp_file = cache / f"{subtarget}_stamp"
 
     sig_file_headers = urllib.request.urlopen(
-        request["upstream_url"]
+        req["upstream_url"]
         + "/"
-        + request["version_data"]["path"]
+        + req["branch_data"]["path"].format(version=req["version"])
         + "/targets/"
-        + request["target"]
+        + req["target"]
         + "/sha256sums.sig"
     ).info()
     log.debug(f"sig_file_headers: \n{sig_file_headers}")
@@ -148,7 +146,7 @@ def build(request: dict):
 
     stamp_file.write_text(origin_modified)
 
-    if request.get("diff_packages", False) and request.get("packages"):
+    if req.get("diff_packages", False) and req.get("packages"):
         info_run = subprocess.run(
             ["make", "info"], text=True, capture_output=True, cwd=cache / subtarget
         )
@@ -157,24 +155,22 @@ def build(request: dict):
         )
         profile_packages = set(
             re.search(
-                r"{}:\n    .+\n    Packages: (.+?)\n".format(request["profile"]),
+                r"{}:\n    .+\n    Packages: (.+?)\n".format(req["profile"]),
                 info_run.stdout,
                 re.MULTILINE,
             )
             .group(1)
             .split()
         )
-        remove_packages = (default_packages | profile_packages) - request["packages"]
-        request["packages"] = request["packages"] | set(
-            map(lambda p: f"-{p}", remove_packages)
-        )
+        remove_packages = (default_packages | profile_packages) - req["packages"]
+        req["packages"] = req["packages"] | set(map(lambda p: f"-{p}", remove_packages))
 
     manifest_run = subprocess.run(
         [
             "make",
             "manifest",
-            f"PROFILE={request['profile']}",
-            f"PACKAGES={' '.join(request['packages'])}",
+            f"PROFILE={req['profile']}",
+            f"PACKAGES={' '.join(req['packages'])}",
         ],
         text=True,
         capture_output=True,
@@ -194,30 +190,25 @@ def build(request: dict):
     packages_hash = get_packages_hash(manifest_packages)
     log.debug(f"Packages Hash {packages_hash}")
 
-    bin_dir = (
-        Path(request["version"])
-        / request["target"]
-        / request["profile"]
-        / packages_hash
-    )
+    bin_dir = Path(req["version"]) / req["target"] / req["profile"] / packages_hash
 
-    (request["store_path"] / bin_dir).mkdir(parents=True, exist_ok=True)
+    (req["store_path"] / bin_dir).mkdir(parents=True, exist_ok=True)
 
     image_build = subprocess.run(
         [
             "make",
             "image",
-            f"PROFILE={request['profile']}",
-            f"PACKAGES={' '.join(request['packages'])}",
+            f"PROFILE={req['profile']}",
+            f"PACKAGES={' '.join(req['packages'])}",
             f"EXTRA_IMAGE_NAME={packages_hash}",
-            f"BIN_DIR={request['store_path'] / bin_dir}",
+            f"BIN_DIR={req['store_path'] / bin_dir}",
         ],
         text=True,
         capture_output=True,
         cwd=cache / subtarget,
     )
 
-    (request["store_path"] / bin_dir / "buildlog.txt").write_text(
+    (req["store_path"] / bin_dir / "buildlog.txt").write_text(
         f"### STDOUT\n\n{image_build.stdout}\n\n### STDERR\n\n{image_build.stderr}"
     )
 
@@ -233,19 +224,19 @@ def build(request: dict):
 
     assert not image_build.returncode, "ImageBuilder failed"
 
-    json_file = Path(request["store_path"] / bin_dir / "profiles.json")
+    json_file = Path(req["store_path"] / bin_dir / "profiles.json")
 
     assert json_file.is_file(), "Image built but no profiles.json file created"
 
     json_content = json.loads(json_file.read_text())
 
     assert (
-        request["profile"] in json_content["profiles"]
+        req["profile"] in json_content["profiles"]
     ), "Requested profile not in created profiles.json"
 
     json_content.update({"manifest": manifest})
-    json_content.update(json_content["profiles"][request["profile"]])
-    json_content["id"] = request["profile"]
+    json_content.update(json_content["profiles"][req["profile"]])
+    json_content["id"] = req["profile"]
     json_content.pop("profiles")
 
     return json_content

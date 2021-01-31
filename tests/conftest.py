@@ -30,8 +30,13 @@ def pytest_collection_modifyitems(config, items):
 @pytest.fixture
 def redis():
     r = FakeStrictRedis()
-    r.sadd("packages-snapshot-testtarget/testsubtarget", "test1", "test2", "test3")
-    r.hset("profiles-snapshot", mapping={"testprofile": "testtarget/testsubtarget"})
+    r.sadd(
+        "packages-snapshot-snapshot-testtarget/testsubtarget", "test1", "test2", "test3"
+    )
+    r.hset(
+        "profiles-snapshot-snapshot",
+        mapping={"testprofile": "testtarget/testsubtarget"},
+    )
     r.hset("mapping-snapshot", mapping={"testvendor,testprofile": "testprofile"})
     r.sadd("targets-snapshot", "testtarget/testsubtarget")
     yield r
@@ -54,12 +59,27 @@ def app(redis):
                     {
                         "name": "snapshot",
                         "enabled": True,
-                        "latest": "snapshot",
+                        "versions": ["snapshot"],
                         "git_branch": "master",
                         "path": "snapshots",
+                        "path_packages": "snapshots/packages",
+                        "repos": ["base"],
                         "pubkey": "RWS1BD5w+adc3j2Hqg9+b66CvLR7NlHbsj7wjNVj0XGt/othDgIAOJS+",
                         "updates": "dev",
-                    }
+                        "targets": {"testtarget/testsubtarget": "testarch"},
+                    },
+                    {
+                        "name": "19.07",
+                        "enabled": True,
+                        "versions": ["19.07.6", "19.07.5"],
+                        "git_branch": "openwrt-19.07",
+                        "path": "releases/{version}",
+                        "path_packages": "releases/packages-{branch}",
+                        "repos": ["base"],
+                        "pubkey": "RWS1BD5w+adc3j2Hqg9+b66CvLR7NlHbsj7wjNVj0XGt/othDgIAOJS+",
+                        "updates": "stable",
+                        "targets": {"testtarget/testsubtarget": "testarch"},
+                    },
                 ],
             },
         }

@@ -7,7 +7,9 @@ def test_api_build(client):
     response = client.post(
         "/api/build",
         json=dict(
-            version="SNAPSHOT", profile="testprofile", packages=["test1", "test2"],
+            version="SNAPSHOT",
+            profile="testprofile",
+            packages=["test1", "test2"],
         ),
     )
     assert response.status == "202 ACCEPTED"
@@ -33,7 +35,9 @@ def test_api_build_get(client):
     client.post(
         "/api/build",
         json=dict(
-            version="SNAPSHOT", profile="testprofile", packages=["test1", "test2"],
+            version="SNAPSHOT",
+            profile="testprofile",
+            packages=["test1", "test2"],
         ),
     )
     response = client.get("/api/build/0af0c1a9ea31")
@@ -54,7 +58,8 @@ def test_api_build_get_no_post(client):
 
 def test_api_build_empty_packages_list(client):
     response = client.post(
-        "/api/build", json=dict(version="SNAPSHOT", profile="testprofile", packages=[]),
+        "/api/build",
+        json=dict(version="SNAPSHOT", profile="testprofile", packages=[]),
     )
     assert response.status == "202 ACCEPTED"
     assert response.json.get("status") == "queued"
@@ -111,13 +116,27 @@ def test_api_build_bad_distro(client):
     assert response.json.get("status") == "bad_distro"
 
 
+def test_api_build_bad_branch(client):
+    response = client.post(
+        "/api/build",
+        json=dict(
+            version="10.10.10", profile="testprofile", packages=["test1", "test2"]
+        ),
+    )
+    assert response.status == "400 BAD REQUEST"
+    assert response.json.get("message") == "Unsupported branch: 10.10.10"
+    assert response.json.get("status") == "bad_branch"
+
+
 def test_api_build_bad_version(client):
     response = client.post(
         "/api/build",
-        json=dict(version="Foobar", profile="testprofile", packages=["test1", "test2"]),
+        json=dict(
+            version="19.07.2", profile="testprofile", packages=["test1", "test2"]
+        ),
     )
     assert response.status == "400 BAD REQUEST"
-    assert response.json.get("message") == "Unsupported version: foobar"
+    assert response.json.get("message") == "Unsupported version: 19.07.2"
     assert response.json.get("status") == "bad_version"
 
 
